@@ -1,0 +1,3 @@
+*  ui-extras
+
+Some extra utility definitions for StumpWM.
