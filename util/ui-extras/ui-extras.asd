@@ -6,6 +6,6 @@
   :license  "GPLv3"
   :version "0.0.1"
   :serial t
-  :depends-on (#:stumpwm)
+  :depends-on (#:stumpwm #:serapeum)
   :components ((:file "package")
                (:file "ui-extras")))

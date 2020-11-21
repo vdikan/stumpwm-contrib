@@ -1,4 +1,6 @@
 ;;;; package.lisp
 
 (defpackage #:ui-extras
-  (:use #:cl :stumpwm))
+  (:use #:cl :stumpwm)
+  (:import-from #:serapeum :take :drop)
+  (:export :display-pager-text))
