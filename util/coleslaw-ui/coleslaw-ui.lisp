@@ -175,12 +175,36 @@ Somewhat clumsy...Need to refactor namesss"
     m))
 
 
-(setf *coleslaw-ui-map*
-      (let ((m (make-sparse-keymap)))
-        (define-key m (kbd "e") 'edit-pub-map)
-        (define-key m (kbd "c") 'create-pub-map)
-        (define-key m (kbd "p") 'preview-pub-map)
-        (define-key m (kbd "s") "stage-blog")
-        (define-key m (kbd "r") "start-blog-preview")
-        (define-key m (kbd "k") "kill-blog-preview")
-        m))
+(defcommand edit-blog-rc () ()
+  (uiop:with-current-directory ((truename *blog-dir*))
+    (run-or-raise
+     (concatenate 'string "exec emacsclient "
+                  (namestring (truename #p".coleslawrc")))
+     '(:title "edit coleslawrc"))))
+
+
+(defvar deployed-notification "^[ClW^2^B deployed!^]")
+
+
+(defcommand deploy-blog () ()
+  (bt:make-thread
+   (lambda ()
+     (uiop:run-program
+      (format nil "cd ~a && sbcl --eval \'(ql:quickload :coleslaw-cli)\' --eval \'(coleslaw-cli:deploy)\'"
+              *blog-dir*))
+     (notifications-add deployed-notification)
+     (message deployed-notification))
+   :name "deploy-blog-thread"))
+
+
+(defvar *coleslaw-ui-map*
+  (let ((m (make-sparse-keymap)))
+    (define-key m (kbd "e") 'edit-pub-map)
+    (define-key m (kbd "c") 'create-pub-map)
+    (define-key m (kbd "p") 'preview-pub-map)
+    (define-key m (kbd "s") "stage-blog")
+    (define-key m (kbd "r") "start-blog-preview")
+    (define-key m (kbd "k") "kill-blog-preview")
+    (define-key m (kbd "o") "edit-blog-rc")
+    (define-key m (kbd "d") "deploy-blog")
+    m))
