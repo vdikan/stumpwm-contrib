@@ -1,0 +1,3 @@
+*  Coleslaw-UI
+
+Rudimentary StumpWM UI for the ColeslaW blogware.
