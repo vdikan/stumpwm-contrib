@@ -85,7 +85,7 @@ Somewhat clumsy...Need to refactor namesss"
   (with-open-file (stream filename)
     (read-line stream nil)
     (uiop:run-program
-     (format nil "sensible-browser localhost:5000/~a~{~a~^-~}.html"
+     (format nil "sensible-browser http://localhost:5000/~a~{~a~^-~}.html"
              (if (string-equal (pathname-type filename) "post") "posts/" "")
              (if (string-equal (pathname-type filename) "post")
                  (-<> (read-line stream nil)
