@@ -14,22 +14,28 @@
   (string-equal type (pathname-type file)))
 
 
-(defun publications-alist (type)
+(defun publications-list (type)
   (let ((files-list
           (remove-if-not
            (lambda (pub) (check-pub-type pub type))
            (uiop:directory-files *blog-dir*))))
-    (-> (mapcar (lambda (pub) (cons (pathname-name pub) (namestring pub)))
-                files-list)
+    (-> (mapcar #'pathname-name files-list)
         (reverse))))
+
+
+(defun pub-truename (name type)
+  (uiop:with-current-directory (*blog-dir*)
+    (namestring (truename (format nil "~a.~a" name type)))))
 
 
 (defun ui-pub-menu (type action)
   (let ((stumpwm::*menu-maximum-height* 12))
-    (select-from-menu
-     (current-screen)
-     (publications-alist type)
-     (format nil "^>^[^6..::::====[^B ~a ~a ^b]==::'^]" action type))))
+    (let ((pub-name
+            (select-from-menu
+             (current-screen)
+             (publications-list type)
+             (format nil "^>^[^6..::::====[^B ~a ~a ^b]==::'^]" action type))))
+      (when pub-name (pub-truename (first pub-name) type)))))
 
 
 (defun edit-pub (filename)
@@ -42,7 +48,7 @@
 (defun edit-pub-menu (type)
   (let ((pub (ui-pub-menu type "Edit")))
     (if (not (null pub))
-        (edit-pub (cdr pub))
+        (edit-pub pub)
         (echo "^B^1Cancel"))))
 
 
@@ -98,7 +104,7 @@ Somewhat clumsy...Need to refactor namesss"
 (defun preview-pub-menu (type)
   (let ((pub (ui-pub-menu type "Preview in Browser")))
     (if (not (null pub))
-        (preview-pub (cdr pub))
+        (preview-pub pub)
         (echo "^B^1Cancel"))))
 
 
