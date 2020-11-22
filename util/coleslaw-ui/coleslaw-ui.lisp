@@ -206,5 +206,5 @@ Somewhat clumsy...Need to refactor namesss"
     (define-key m (kbd "r") "start-blog-preview")
     (define-key m (kbd "k") "kill-blog-preview")
     (define-key m (kbd "o") "edit-blog-rc")
-    (define-key m (kbd "d") "deploy-blog")
+    (define-key m (kbd "D") "deploy-blog")
     m))
