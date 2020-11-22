@@ -24,19 +24,19 @@
         (reverse))))
 
 
-(defun edit-pub (filename)
-  "Edit publication in emacs."
-  (run-or-raise
-   (concatenate 'string "exec emacsclient " filename)
-   '(:title "edit publication")))
-
-
 (defun ui-pub-menu (type action)
   (let ((stumpwm::*menu-maximum-height* 12))
     (select-from-menu
      (current-screen)
      (publications-alist type)
      (format nil "^>^[^6..::::====[^B ~a ~a ^b]==::'^]" action type))))
+
+
+(defun edit-pub (filename)
+  "Edit publication in emacs."
+  (run-or-raise
+   (concatenate 'string "exec emacsclient " filename)
+   '(:title "edit publication")))
 
 
 (defun edit-pub-menu (type)
@@ -52,6 +52,30 @@
 
 (defcommand edit-blog-page () ()
   (edit-pub-menu "page"))
+
+
+(defun create-pub (type &optional prepend-timestamp)
+  (let ((new-pub-name
+          (read-one-line
+           (current-screen)
+           (format nil "New ~a filename:" type)
+           :initial-input (if prepend-timestamp
+                              (format nil "~a-" (simple-date-time:yyyy-mm-dd
+                                                 (simple-date-time:now)))
+                              ""))))
+    (when new-pub-name
+      (uiop:with-current-directory
+          (*blog-dir*)
+        (coleslaw-cli:new type new-pub-name)
+        (edit-pub (namestring (truename (format nil "~a.~a" new-pub-name type))))))))
+
+
+(defcommand create-blog-post () ()
+  (create-pub "post" t))
+
+
+(defcommand create-blog-page () ()
+  (create-pub "page"))
 
 
 (defvar staged-notification "^[ClW^2^B staged^]")
@@ -104,9 +128,18 @@
     m))
 
 
+(defvar create-pub-map
+  (let ((m (make-sparse-keymap)))
+    (define-key m (kbd "c") "create-blog-post")
+    (define-key m (kbd "p") "create-blog-post")
+    (define-key m (kbd "a") "create-blog-page")
+    m))
+
+
 (setf *coleslaw-ui-map*
       (let ((m (make-sparse-keymap)))
         (define-key m (kbd "e") 'edit-pub-map)
+        (define-key m (kbd "c") 'create-pub-map)
         (define-key m (kbd "s") "stage-blog")
         (define-key m (kbd "r") "start-blog-preview")
         (define-key m (kbd "k") "kill-blog-preview")
