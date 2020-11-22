@@ -6,6 +6,13 @@
   :license  "GPLv3"
   :version "0.0.1"
   :serial t
-  :depends-on (#:stumpwm #:simple-date-time #:alexandria #:serapeum #:cl-arrows #:coleslaw-cli)
+  :depends-on (#:stumpwm
+               #:notifications
+               #:bt-semaphore
+               #:simple-date-time
+               #:alexandria
+               #:serapeum
+               #:cl-arrows
+               #:coleslaw-cli)
   :components ((:file "package")
                (:file "coleslaw-ui")))
