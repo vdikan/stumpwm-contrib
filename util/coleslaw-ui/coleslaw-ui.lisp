@@ -78,6 +78,38 @@
   (create-pub "page"))
 
 
+(defun preview-pub (filename)
+  "Try open FILENAME publication preview in browser.
+Somewhat clumsy...Need to refactor namesss"
+  (if (null preview-proc) (start-blog-preview))
+  (with-open-file (stream filename)
+    (read-line stream nil)
+    (uiop:run-program
+     (format nil "sensible-browser localhost:5000/~a~{~a~^-~}.html"
+             (if (string-equal (pathname-type filename) "post") "posts/" "")
+             (if (string-equal (pathname-type filename) "post")
+                 (-<> (read-line stream nil)
+                      (remove-if (lambda (c) (char-equal #\' c)) <>)
+                      (split-string <> '(#\Space #\# #\:))
+                      (subseq <> 1))
+                 (list (pathname-name filename)))))))
+
+
+(defun preview-pub-menu (type)
+  (let ((pub (ui-pub-menu type "Preview in Browser")))
+    (if (not (null pub))
+        (preview-pub (cdr pub))
+        (echo "^B^1Cancel"))))
+
+
+(defcommand preview-blog-post () ()
+  (preview-pub-menu  "post"))
+
+
+(defcommand preview-blog-page () ()
+  (preview-pub-menu  "page"))
+
+
 (defvar staged-notification "^[ClW^2^B staged^]")
 
 
@@ -136,10 +168,18 @@
     m))
 
 
+(defvar preview-pub-map
+  (let ((m (make-sparse-keymap)))
+    (define-key m (kbd "p") "preview-blog-post")
+    (define-key m (kbd "a") "preview-blog-page")
+    m))
+
+
 (setf *coleslaw-ui-map*
       (let ((m (make-sparse-keymap)))
         (define-key m (kbd "e") 'edit-pub-map)
         (define-key m (kbd "c") 'create-pub-map)
+        (define-key m (kbd "p") 'preview-pub-map)
         (define-key m (kbd "s") "stage-blog")
         (define-key m (kbd "r") "start-blog-preview")
         (define-key m (kbd "k") "kill-blog-preview")
