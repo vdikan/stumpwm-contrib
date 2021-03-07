@@ -92,7 +92,6 @@ Somewhat clumsy...Need to refactor namesss"
     (read-line stream nil)
     (uiop:run-program
      (format nil "sensible-browser localhost:5000/~a~a.html"
-             >>>>>>> coleslaw-ui slugs in previews
              (if (string-equal (pathname-type filename) "post") "posts/" "")
              (if (string-equal (pathname-type filename) "post")
                  (string-downcase
