@@ -2,6 +2,8 @@
 
 (in-package #:stocks-api)
 
+(ql:quickload :jonathan)
+
 
 (defvar rapidapi-key
   ;; (uiop:getenv "RAPIDAPI_KEY")
@@ -38,8 +40,65 @@
   "Time format for plot representation.")
 
 
-(defvar x-timefmt "%Y-%m-%d"
+(defvar x-timefmt "%d-%m-%Y"
   "Time format for X-axis display.")
+
+
+(defvar ticker "BTC"
+  "Ticker name for the request.")
+
+
+(defcommand stocks-set-ticker (new-ticker)
+    ((:string "Set Ticker (erases last results): "))
+  (setf ticker (string-upcase new-ticker))
+  (setf request-results nil)
+  (message "Ticker set to ~A. Results wiped." ticker))
+
+
+(defvar property-names
+  '(:open   "1. open"
+    :high   "2. high"
+    :low    "3. low"
+    :close  "4. close"
+    :volume "5. volume"))
+
+
+(defvar property :close
+  "Keyword for selecting property from request.")
+
+
+(defcommand stocks-set-property () ()
+  (setf property
+        (alexandria:make-keyword
+         (let ((completion-names
+                 (loop :for (key name) :on property-names
+                       :by #'cddr :collect (string key))))
+           (completing-read
+            (current-screen)
+            "Select property in response: "
+            completion-names
+            :initial-input (string property)
+            :require-match t))))
+  (echo property))
+
+
+(defvar console-plotter-cmd-template
+  "feedgnuplot --title '~a' --lines --domain --timefmt '~a' --set 'format x \"~a\"' --unset grid --terminal 'dumb ~a,~a' --exit")
+
+
+(defvar graphics-plotter-cmd-template
+  "feedgnuplot --lines --domain --timefmt '~a' --set 'format x \"~a\"'")
+
+
+(defun plotter-cmd ()
+  (if term-consolep
+      (format nil console-plotter-cmd-template
+              ticker timefmt x-timefmt console-term-width console-term-height)
+      (format nil graphics-plotter-cmd-template timefmt x-timefmt)))
+
+
+(defvar request-results nil
+  "Stores the final data table (X VAL) for the a last processed request.")
 
 
 (defvar api-request-template
@@ -51,46 +110,96 @@
   (format nil api-request-template function ticker))
 
 
-(defvar request-results nil)
+(defvar series-names
+  '(:daily ("Time Series (Daily)" "TIME_SERIES_DAILY")))
 
 
-(defvar ticker "BTC")
+(defvar series :daily)
 
 
-(defcommand stocks-set-ticker (new-ticker)
-    ((:string "Set Ticker (erases last results): "))
-  (setf ticker (string-upcase new-ticker))
-  (setf request-results nil)
-  (message "Ticker set to ~A. Results wiped." ticker))
+(defun make-request ()
+  (let* ((request
+           (request-string (second (getf series-names series)) ticker))
+         (response
+           (uiop:run-program request :output '(:string :stripped t))))
+    response))
 
 
-(defparameter series-names
-  '(:ts-daily "Time Series (Daily)"))
+(defun process-request ()
+  (let ((response (make-request)))
+    (when response
+      (setf request-results
+            (loop
+              :for (date props)
+                :on (getf (jonathan:parse response :as :plist)
+                          (alexandria:make-keyword
+                           (first (getf series-names series))))
+              :by #'cddr
+              :append (list (string date)
+                            (getf props
+                                  (alexandria:make-keyword
+                                   (getf property-names property)))))))))
 
 
-(defparameter property-names
-  '(:open   "1. open"
-    :high   "2. high"
-    :low    "3. low"
-    :close  "4. close"
-    :volume "5. volume"))
+(defun results-table ()
+  (format nil "\"~{~a ~a~%~}\"" request-results))
 
 
+(defun plot-results ()
+  (if term-consolep
+      (let ((*suppress-echo-timeout* t)
+            (*message-window-gravity* :center))
+        (message
+         (uiop:run-program
+          (format nil (concatenate 'string "echo ~a |" (plotter-cmd))
+                  (results-table))
+          :output '(:string :stripped t))))
+      (let ((graphics t))
+        ;; FIXME: aproc tread here
+        (uiop:launch-program
+         (format nil (concatenate 'string "echo ~a |" (plotter-cmd))
+                 (results-table)))
+        (message "Output to Graphics Terminal")
+        graphics)))
+
+
+(defcommand stocks-plot-results () ()
+  (if request-results
+      (plot-results)
+      (message "^[^1No Data Stored!^]")))
+
+
+(defcommand stocks-make-request () ()
+  (make-request)
+  (when (process-request) (plot-results)))
+
+
+(defcommand stocks-term-info () ()
+  (if term-consolep
+      (message "Term Type: ^[^2Console^]  Width:^[^3 ~a^]  Height:^[^3 ~a^]"
+               console-term-width console-term-height)
+      (message "Term Type: ^[^2Graphics^]")))
+
+
+(defvar stocks-menu)
 (setf stocks-menu
-      `(("Set Ticker" stocks-set-ticker)
+      `(("Replot Stored Data" stocks-plot-results)
+        ("Request Selected Ticker Data" stocks-make-request)
+        ("Set Ticker" stocks-set-ticker)
+        ("View Terminal Setting" stocks-term-info)
         ("Options.."
+         ("Set Request Property" stocks-set-property)
          ("Toggle Terminal Type" stocks-toggle-term-type)
          ("Set Console Term Width" stocks-set-term-width)
          ("Set Console Term Height" stocks-set-term-height))))
 
 
 (defun stocks-prompt ()
-  (format nil "Stocks Requests Tick:~a R:~a CT:~a W:~a H:~a"
+  (format nil "=Stocks= Tick:~a Prop:~a Ser:~a Resp:~a"
           ticker
-          (when request-results t)
-          term-consolep
-          console-term-width
-          console-term-height))
+          property
+          series
+          (when request-results t)))
 
 
 (defun commandp (command-name)
