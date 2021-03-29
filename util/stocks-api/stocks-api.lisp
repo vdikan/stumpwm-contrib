@@ -2,12 +2,10 @@
 
 (in-package #:stocks-api)
 
-(ql:quickload :jonathan)
-
 
 (defvar rapidapi-key
-  ;; (uiop:getenv "RAPIDAPI_KEY")
-  "RapidApi account token. TODO: get as environment var")
+  (uiop:getenv "RAPIDAPI_KEY")
+  "RapidApi account token. Stored as an environment variable.")
 
 
 (defvar term-consolep t
@@ -44,7 +42,7 @@
   "Time format for X-axis display.")
 
 
-(defvar ticker "BTC"
+(defvar ticker "DELL"
   "Ticker name for the request.")
 
 
@@ -82,19 +80,23 @@
   (echo property))
 
 
-(defvar console-plotter-cmd-template
-  "feedgnuplot --title '~a' --lines --domain --timefmt '~a' --set 'format x \"~a\"' --unset grid --terminal 'dumb ~a,~a' --exit")
+(defvar console-plotter-cmd-template)
+(setf console-plotter-cmd-template
+      "feedgnuplot --title '~a ~a' --lines --domain --timefmt '~a' --set 'format x \"~a\"' --unset grid --terminal 'dumb ~a,~a' --exit")
 
 
-(defvar graphics-plotter-cmd-template
-  "feedgnuplot --lines --domain --timefmt '~a' --set 'format x \"~a\"'")
+(defvar graphics-plotter-cmd-template)
+(setf graphics-plotter-cmd-template
+      "feedgnuplot --title '~a ~a' --lines --domain --timefmt '~a' --set 'format x \"~a\"'")
 
 
 (defun plotter-cmd ()
   (if term-consolep
       (format nil console-plotter-cmd-template
-              ticker timefmt x-timefmt console-term-width console-term-height)
-      (format nil graphics-plotter-cmd-template timefmt x-timefmt)))
+              ticker (first (getf series-names series))
+              timefmt x-timefmt console-term-width console-term-height)
+      (format nil graphics-plotter-cmd-template
+              ticker (first (getf series-names series)) timefmt x-timefmt)))
 
 
 (defvar request-results nil
@@ -110,11 +112,32 @@
   (format nil api-request-template function ticker))
 
 
-(defvar series-names
-  '(:daily ("Time Series (Daily)" "TIME_SERIES_DAILY")))
+(defvar series-names)
+(setf series-names
+      '(:monthly ("Monthly Time Series" "TIME_SERIES_MONTHLY")
+        :weekly ("Weekly Time Series" "TIME_SERIES_WEEKLY")
+        :daily ("Time Series (Daily)" "TIME_SERIES_DAILY")))
+        ;FIXME: needs time parsing:
+        ;:intraday ("Time Series (5min)" "TIME_SERIES_INTRADAY")))
 
 
-(defvar series :daily)
+(defvar series :daily
+  "Keyword for selecting time series type from request.")
+
+
+(defcommand stocks-set-series () ()
+  (setf series
+        (alexandria:make-keyword
+         (let ((completion-names
+                 (loop :for (key name) :on series-names
+                       :by #'cddr :collect (string key))))
+           (completing-read
+            (current-screen)
+            "Select time series in response: "
+            completion-names
+            :initial-input (string series)
+            :require-match t))))
+  (echo series))
 
 
 (defun make-request ()
@@ -154,13 +177,15 @@
           (format nil (concatenate 'string "echo ~a |" (plotter-cmd))
                   (results-table))
           :output '(:string :stripped t))))
-      (let ((graphics t))
-        ;; FIXME: aproc tread here
-        (uiop:launch-program
-         (format nil (concatenate 'string "echo ~a |" (plotter-cmd))
-                 (results-table)))
-        (message "Output to Graphics Terminal")
-        graphics)))
+      (block graphics-term
+        (bt:make-thread
+         (lambda ()
+           (uiop:run-program
+            (format nil (concatenate 'string "echo ~a |" (plotter-cmd))
+                    (results-table))))
+         :name "graphics-term-thread")
+        (message "Output sent to Graphics Terminal")
+        t)))
 
 
 (defcommand stocks-plot-results () ()
@@ -181,15 +206,39 @@
       (message "Term Type: ^[^2Graphics^]")))
 
 
+(defcommand stocks-search-endpoint (input-string)
+    ((:string "Search Endpoints for: "))
+  (let*
+      ((response
+         (jonathan:parse
+          (uiop:run-program
+           (format nil "curl --request GET --url 'https://alpha-vantage.p.rapidapi.com/query?keywords=~a&function=SYMBOL_SEARCH&datatype=json' --header 'x-rapidapi-host: alpha-vantage.p.rapidapi.com' --header 'x-rapidapi-key: ~a'"
+                   input-string rapidapi-key)
+           :output '(:string :stripped t))
+          :as :alist))
+       (variants
+         (mapcar (lambda (row)
+                   (list
+                    (format nil "~{~a~^ - ~}"
+                            (loop :for (string opt) :on (reverse (alexandria:flatten row))
+                                  :by #'cddr :collect string))
+                    (first (reverse (alexandria:flatten row))))) (rest (first response))))
+       (selected (second (select-from-menu (current-screen) variants))))
+    (setf ticker selected)
+    (echo selected)))
+
+
 (defvar stocks-menu)
 (setf stocks-menu
       `(("Replot Stored Data" stocks-plot-results)
         ("Request Selected Ticker Data" stocks-make-request)
-        ("Set Ticker" stocks-set-ticker)
+        ("Search Endpoint (Ticker)" stocks-search-endpoint)
+        ("Set Ticker Manually" stocks-set-ticker)
         ("View Terminal Setting" stocks-term-info)
+        ("Toggle Terminal Type" stocks-toggle-term-type)
         ("Options.."
+         ("Set Request Time Series" stocks-set-series)
          ("Set Request Property" stocks-set-property)
-         ("Toggle Terminal Type" stocks-toggle-term-type)
          ("Set Console Term Width" stocks-set-term-width)
          ("Set Console Term Height" stocks-set-term-height))))
 
