@@ -9,6 +9,10 @@
 
 (defvar preview-proc nil)
 
+(defvar *org-books-registry-dir* #p"~/Grimoire/org/brain/")
+
+(defvar *org-books-registry-file* #p"Books-Revised.org")
+
 
 (defun check-pub-type (file type)
   (string-equal type (pathname-type file)))
@@ -97,7 +101,8 @@ Somewhat clumsy...Need to refactor namesss"
                  (string-downcase
                   (format nil "~{~a~^-~}"
                           (-<> (read-line stream nil)
-                               (remove-if (lambda (c) (char-equal #\' c)) <>)
+                               (remove-if (lambda (c) (or (char-equal #\' c)
+                                                          (char-equal #\` c))) <>)
                                (split-string <> '(#\Space #\# #\:))
                                (subseq <> 1))))
                  (pathname-name filename))))))
@@ -191,6 +196,14 @@ Somewhat clumsy...Need to refactor namesss"
      '(:title "edit coleslawrc"))))
 
 
+(defcommand edit-blog-org-books-registry () ()
+  (uiop:with-current-directory ((truename *org-books-registry-dir*))
+    (run-or-raise
+     (concatenate 'string "exec emacsclient "
+                  (namestring (truename *org-books-registry-file*)))
+     '(:title "edit org-books registry for :coleslaw"))))
+
+
 (defvar deployed-notification "^[ClW^2^B deployed!^]")
 
 
@@ -214,5 +227,6 @@ Somewhat clumsy...Need to refactor namesss"
     (define-key m (kbd "r") "start-blog-preview")
     (define-key m (kbd "k") "kill-blog-preview")
     (define-key m (kbd "o") "edit-blog-rc")
+    (define-key m (kbd "b") "edit-blog-org-books-registry")
     (define-key m (kbd "D") "deploy-blog")
     m))
