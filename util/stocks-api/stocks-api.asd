@@ -6,6 +6,6 @@
   :license  "GPLv3"
   :version "0.0.1"
   :serial t
-  :depends-on (#:stumpwm #:jonathan)
+  :depends-on (#:bordeaux-threads #:stumpwm #:jonathan)
   :components ((:file "package")
                (:file "stocks-api")))
