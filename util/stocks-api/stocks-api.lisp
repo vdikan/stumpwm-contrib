@@ -61,34 +61,6 @@
     :volume "5. volume"))
 
 
-(defvar property :close
-  "Keyword for selecting property from request.")
-
-
-(defcommand stocks-set-property () ()
-  (setf property
-        (alexandria:make-keyword
-         (let ((completion-names
-                 (loop :for (key name) :on property-names
-                       :by #'cddr :collect (string key))))
-           (completing-read
-            (current-screen)
-            "Select property in response: "
-            completion-names
-            :initial-input (string property)
-            :require-match t))))
-  (echo property))
-
-
-(defvar console-plotter-cmd-template)
-(setf console-plotter-cmd-template
-      "feedgnuplot --title '~a ~a' --lines --domain --timefmt '~a' --set 'format x \"~a\"' --unset grid --terminal 'dumb ~a,~a' --exit")
-
-
-(defvar graphics-plotter-cmd-template)
-(setf graphics-plotter-cmd-template
-      "feedgnuplot --title '~a ~a' --lines --domain --timefmt '~a' --set 'format x \"~a\"'")
-
 
 (defun plotter-cmd ()
   (if term-consolep
@@ -99,104 +71,13 @@
               ticker (first (getf series-names series)) timefmt x-timefmt)))
 
 
-(defvar request-results nil
-  "Stores the final data table (X VAL) for the a last processed request.")
-
-
-(defvar api-request-template
-  (format nil "curl --request GET --url 'https://alpha-vantage.p.rapidapi.com/query?function=~~a&symbol=~~a&outputsize=compact&datatype=json' --header 'x-rapidapi-host: alpha-vantage.p.rapidapi.com' --header 'x-rapidapi-key: ~a'"
-          rapidapi-key))
-
-
-(defun request-string (function ticker)
-  (format nil api-request-template function ticker))
-
-
 (defvar series-names)
 (setf series-names
-      '(:monthly ("Monthly Time Series" "TIME_SERIES_MONTHLY")
-        :weekly ("Weekly Time Series" "TIME_SERIES_WEEKLY")
-        :daily ("Time Series (Daily)" "TIME_SERIES_DAILY")))
-        ;FIXME: needs time parsing:
-        ;:intraday ("Time Series (5min)" "TIME_SERIES_INTRADAY")))
-
-
-(defvar series :daily
-  "Keyword for selecting time series type from request.")
-
-
-(defcommand stocks-set-series () ()
-  (setf series
-        (alexandria:make-keyword
-         (let ((completion-names
-                 (loop :for (key name) :on series-names
-                       :by #'cddr :collect (string key))))
-           (completing-read
-            (current-screen)
-            "Select time series in response: "
-            completion-names
-            :initial-input (string series)
-            :require-match t))))
-  (echo series))
-
-
-(defun make-request ()
-  (let* ((request
-           (request-string (second (getf series-names series)) ticker))
-         (response
-           (uiop:run-program request :output '(:string :stripped t))))
-    response))
-
-
-(defun process-request ()
-  (let ((response (make-request)))
-    (when response
-      (setf request-results
-            (loop
-              :for (date props)
-                :on (getf (jonathan:parse response :as :plist)
-                          (alexandria:make-keyword
-                           (first (getf series-names series))))
-              :by #'cddr
-              :append (list (string date)
-                            (getf props
-                                  (alexandria:make-keyword
-                                   (getf property-names property)))))))))
-
-
-(defun results-table ()
-  (format nil "\"~{~a ~a~%~}\"" request-results))
-
-
-(defun plot-results ()
-  (if term-consolep
-      (let ((*suppress-echo-timeout* t)
-            (*message-window-gravity* :center))
-        (message
-         (uiop:run-program
-          (format nil (concatenate 'string "echo ~a |" (plotter-cmd))
-                  (results-table))
-          :output '(:string :stripped t))))
-      (block graphics-term
-        (bt:make-thread
-         (lambda ()
-           (uiop:run-program
-            (format nil (concatenate 'string "echo ~a |" (plotter-cmd))
-                    (results-table))))
-         :name "graphics-term-thread")
-        (message "Output sent to Graphics Terminal")
-        t)))
-
-
-(defcommand stocks-plot-results () ()
-  (if request-results
-      (plot-results)
-      (message "^[^1No Data Stored!^]")))
-
-
-(defcommand stocks-make-request () ()
-  (make-request)
-  (when (process-request) (plot-results)))
+      '(("TIME_SERIES_MONTHLY" . "Monthly Time Series" )
+        ("TIME_SERIES_WEEKLY"  . "Weekly Time Series" )
+        ("TIME_SERIES_DAILY"   . "Time Series (Daily)" )))
+                                        ;FIXME: needs time parsing:
+                                        ;:intraday ("Time Series (5min)" "TIME_SERIES_INTRADAY")))
 
 
 (defcommand stocks-term-info () ()
@@ -229,25 +110,11 @@
 
 
 (defvar stocks-menu)
-(setf stocks-menu
-      `(("Replot Stored Data" stocks-plot-results)
-        ("Request Selected Ticker Data" stocks-make-request)
-        ("Search Endpoint (Ticker)" stocks-search-endpoint)
-        ("Set Ticker Manually" stocks-set-ticker)
-        ("View Terminal Setting" stocks-term-info)
-        ("Toggle Terminal Type" stocks-toggle-term-type)
-        ("Options.."
-         ("Set Request Time Series" stocks-set-series)
-         ("Set Request Property" stocks-set-property)
-         ("Set Console Term Width" stocks-set-term-width)
-         ("Set Console Term Height" stocks-set-term-height))))
 
 
 (defun stocks-prompt ()
-  (format nil "=Stocks= Tick:~a Prop:~a Ser:~a Resp:~a"
+  (format nil "=Stocks= Tick:~a "
           ticker
-          property
-          series
           (when request-results t)))
 
 
@@ -283,3 +150,254 @@
                   (pick (append (list (list ".." options))
                                 (cdr selection)))))))))
     (pick stocks-menu)))
+
+
+;; CLOS rewritings
+(defvar api-request-queue nil)
+(setf api-request-queue nil)
+
+
+(defclass av-request-base ()
+  ((api-function :initarg :api-function
+                 :reader api-function
+                 :type 'string
+                 :allocation :class)
+   (request-template :initarg :request-template
+                     :reader request-template
+                     :type 'string
+                     :allocation :class)
+   (api-response :initarg api-response
+                 :initform nil
+                 :type 'string
+                 :accessor api-response)
+   (api-data :initarg :api-data
+             :accessor api-data
+             :type 'list)))
+
+
+(defgeneric results-table (api-request)
+  (:documentation "Prints a table using API-DATA from API-REQUEST object."))
+
+
+(defmethod results-table ((obj av-request-base))
+  (format nil "\"~{~{~a ~}~%~}\"" (api-data obj)))
+
+
+(defgeneric menu-action (api-request)
+  (:documentation
+   "Logic triggered upon selection of API-REQUEST object from the requests queue. "))
+
+
+(defmethod menu-action ((obj av-request-base))
+  (message "Menu Action Empty"))
+
+
+(defgeneric make-request (api-request)
+  (:documentation
+   "Make a request through shell command for an API-REQUEST object."))
+
+
+(defmethod make-request :around ((obj av-request-base))
+  (setf (api-response obj)
+        (uiop:run-program
+         (request-string obj)
+         :output '(:string :stripped t)))
+  (push obj api-request-queue)                    ;TODO: обработка ошибки тут
+  (when (next-method-p)
+    (call-next-method))
+  (menu-action obj))
+
+
+(defclass av-request-extended (av-request-base)
+  ((api-meta :initarg :api-meta
+             :accessor api-meta
+             :type 'list)
+   (plotcmd-console :initarg :plotcmd-console
+                    :reader plotcmd-console
+                    :type 'string
+                    :initform  "feedgnuplot --title '~a ~a' --lines --domain --timefmt '~a' --set 'format x \"~a\"' --unset grid --terminal 'dumb ~a,~a' --exit"
+                    :allocation :class)
+   (plotcmd-graphics :initarg :plotcmd-graphics
+                     :reader plotcmd-graphics
+                     :type 'string
+                     :allocation :class)))
+
+
+(defgeneric plot-results (api-request)
+  (:documentation "Plotter dispatch."))
+
+
+(defmethod plot-results ((obj av-request-extended))
+  ;; (if term-consolep
+  (let ((*suppress-echo-timeout* t)
+        (*message-window-gravity* :center)
+        (plotter-cmd (format nil (plotcmd-console obj)
+                             (api-symbol obj)
+                             (cdr (assoc  (api-function obj) series-names :test #'string-equal))
+                             timefmt x-timefmt console-term-width console-term-height)))
+    (message
+     (uiop:run-program
+      (format nil (concatenate 'string "echo ~a |" plotter-cmd)
+              (results-table obj))
+      :output '(:string :stripped t))))
+  ;; (block graphics-term
+  ;;   (bt:make-thread
+  ;;    (lambda ()
+  ;;      (uiop:run-program
+  ;;       (format nil (concatenate 'string "echo ~a |" (plotter-cmd))
+  ;;               (results-table))))
+  ;;    :name "graphics-term-thread")
+  ;;   (message "Output sent to Graphics Terminal")
+  ;;   t)
+  ;; )
+  )
+
+
+(defun av-request-string-template (string)
+  (format nil "curl --request GET --url 'https://alpha-vantage.p.rapidapi.com/query?~a&datatype=json' --header 'x-rapidapi-host: alpha-vantage.p.rapidapi.com' --header 'x-rapidapi-key: ~a'"
+          string rapidapi-key))
+
+
+(defgeneric request-string (api-request)
+  (:documentation
+   "Construct a whole request shell-command for a certain API-REQUEST."))
+
+
+(defclass av-search (av-request-base)
+  ((api-function :initform "SYMBOL_SEARCH")
+   (request-template :initform (av-request-string-template
+                                "keywords=~a&function=~a"))
+   (api-keywords :initarg :api-keywords :reader api-keywords :type 'string)))
+
+
+(defmethod request-string ((obj av-search))
+  (format nil (request-template obj) (api-keywords obj) (api-function obj)))
+
+
+(defmethod print-object ((obj av-search) out)
+  (print-unreadable-object (obj out :type t)
+    (format out "~s" (api-keywords obj))))
+
+
+(defmethod make-request ((obj av-search))
+  (setf (api-data obj)
+        (jonathan:parse (api-response obj)
+                        :as :alist)))
+
+
+(defmethod menu-action ((obj av-search))
+  (let*
+      ((variants
+         (mapcar (lambda (row)
+                   (list
+                    (format nil "~{~a~^ - ~}"
+                            (loop :for (string opt) :on (reverse (alexandria:flatten row))
+                                  :by #'cddr :collect string))
+                    (first (reverse (alexandria:flatten row)))))
+                 (rest (first (api-data obj)))))
+       (selected (second (select-from-menu (current-screen) variants))))
+    (setf ticker selected)
+    (echo selected)))
+
+
+(defcommand stocks-request-history () ()
+  (let* ((variants
+           (mapcar (lambda (obj) (cons (format nil "~a" obj) obj))
+                   api-request-queue))
+         (selected (cdr (select-from-menu (current-screen) variants))))
+    (when selected (menu-action selected))))
+
+
+(defclass av-time-series (av-request-extended)
+  ((request-template :initform (av-request-string-template
+                                "function=~a&symbol=~a"))
+   (api-symbol :initarg :api-symbol
+               :reader api-symbol
+               :type 'string)))
+
+
+(defmethod request-string ((obj av-time-series))
+  (format nil (request-template obj) (api-function obj) (api-symbol obj)))
+
+
+(defclass av-series-weekly (av-time-series)
+  ((api-function :initform "TIME_SERIES_WEEKLY")))
+
+
+(defun select-data-property ()
+  (alexandria:make-keyword
+   (car
+    (select-from-menu
+     (current-screen)
+     (loop :for (key name) :on property-names
+           :by #'cddr :collect (string key))
+     "Select Property:"))))
+
+
+(defgeneric select-data-from-response (api-request)
+  (:documentation
+   "Selects and parses data for certain time property for API-DATA in the API-REQUEST."))
+
+
+(defmethod select-data-from-response ((obj av-time-series))
+  "FIXME: This should build a convenient HIGH-LOW-OPEN-CLOSE table."
+  (setf (api-data obj)
+        (let ((time-property :close))
+          ;;FIXME: (time-property (select-data-property))
+          (loop
+            :for (date props)
+              :on (getf (jonathan:parse (api-response obj) :as :plist)
+                        (alexandria:make-keyword
+                         (cdr (assoc (api-function obj) series-names :test #'string-equal))))
+            :by #'cddr
+            :collect (list (string date)
+                           (getf props
+                                 (alexandria:make-keyword
+                                  (getf property-names time-property))))))))
+
+
+(defmethod make-request ((obj av-time-series))
+  (setf (api-meta obj)
+        (loop :for (str key)
+                :on (reverse
+                     (getf (jonathan:parse (api-response ts) :as :plist)
+                           :|Meta Data|))
+              :by #'cddr
+              :collect str))
+  (select-data-from-response obj))
+
+
+(defmethod print-object ((obj av-time-series) out)
+  (print-unreadable-object (obj out :type t)
+    (format out "~s" (api-symbol obj))))
+
+
+(defmethod menu-action ((obj av-time-series))
+  (plot-results obj))
+
+
+(setf stocks-menu
+      `(("::=[ Stocks Requests History ]=::" stocks-request-history)
+        ("Search Endpoint (Ticker)" stocks-search-endpoint) ;; reduce to "compose request"
+        ("Set Ticker Manually" stocks-set-ticker)
+        ("View Terminal Setting" stocks-term-info)
+        ;; ("Toggle Terminal Type" stocks-toggle-term-type)
+        ("Set Console Term Width" stocks-set-term-width)
+        ("Set Console Term Height" stocks-set-term-height)))
+
+
+;;;TODO:
+;; Menu-Action for time seires;
+;; Output of High-Low-Open-Close table;
+;; Gnuplot dispatch for graphics plots.
+
+
+;;; TEST GROUND
+
+
+(defparameter msft (make-instance 'av-series-weekly :api-symbol "MSFT"))
+(defparameter dell (make-instance 'av-series-weekly :api-symbol "DELL"))
+
+
+(make-request msft)
+(make-request dell)
